@@ -1,5 +1,7 @@
 # AI Overleaf Connector
 
+![AI Overleaf Connector: let Claude Code or Codex revise your Overleaf paper, synced both ways](docs/banner.jpg)
+
 [![tests](https://github.com/YikaiDong-git/ai_overleaf_connector/actions/workflows/tests.yml/badge.svg)](https://github.com/YikaiDong-git/ai_overleaf_connector/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -8,13 +10,6 @@ The agent edits the LaTeX files in a folder on your machine, in batches and with
 repository at hand. `olsync` merges those edits with what your co-authors changed on Overleaf and
 sends the result back, through Overleaf's official git integration. Co-authors keep working in the
 browser and see the agent's revisions there.
-
-```text
-   you + Claude Code / Codex                              co-authors
-   edit paper/ on your machine                            edit on overleaf.com
-              \                                                /
-               '------->  olsync sync  (three-way merge)  <---'
-```
 
 ## Why
 
@@ -111,6 +106,8 @@ olsync sync --dir paper -m "Revise the Discussion"
 ```
 
 ## How it works
+
+![How olsync sync works: compare three versions, merge or stop on overlap, check the build, push only if Overleaf is unchanged](docs/how-it-works.jpg)
 
 `paper/.olsync/` holds a bare git copy of the Overleaf project and a marker for the last synced
 commit. Each sync compares three versions of every tracked file: the last synced snapshot,
