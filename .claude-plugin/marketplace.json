@@ -1,0 +1,14 @@
+{
+  "name": "ai-overleaf-connector",
+  "description": "Connect Claude Code to Overleaf: edit papers locally, sync both ways.",
+  "owner": {
+    "name": "Yikai Dong"
+  },
+  "plugins": [
+    {
+      "name": "overleaf-connector",
+      "source": "./",
+      "description": "Two-way sync between a local LaTeX folder and an Overleaf project, built for coding agents."
+    }
+  ]
+}

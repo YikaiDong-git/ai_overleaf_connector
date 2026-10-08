@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-overleaf-connector"
+version = "0.1.0"
+description = "Two-way sync between a local LaTeX folder and an Overleaf project, built for coding agents."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Yikai Dong" }]
+keywords = ["overleaf", "latex", "sync", "git", "claude-code", "codex"]
+
+[project.urls]
+Homepage = "https://github.com/YikaiDong-git/ai_overleaf_connector"
+
+[project.scripts]
+olsync = "olsync:main"
+
+[tool.setuptools]
+py-modules = ["olsync"]
+package-dir = { "" = "skills/overleaf-sync/scripts" }

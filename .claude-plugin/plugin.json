@@ -1,0 +1,12 @@
+{
+  "name": "overleaf-connector",
+  "version": "0.1.0",
+  "description": "Edit an Overleaf paper locally with Claude Code and keep it in two-way sync with Overleaf through Overleaf's git integration: three-way merges, a review page, and a local build check.",
+  "author": {
+    "name": "Yikai Dong"
+  },
+  "homepage": "https://github.com/YikaiDong-git/ai_overleaf_connector",
+  "repository": "https://github.com/YikaiDong-git/ai_overleaf_connector",
+  "license": "MIT",
+  "keywords": ["overleaf", "latex", "paper", "sync", "git", "writing"]
+}
