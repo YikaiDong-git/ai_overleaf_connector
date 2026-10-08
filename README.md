@@ -157,6 +157,9 @@ Exit codes, configuration keys and troubleshooting are in
 - `.olsync/` carries its own ignore rule, so your repository's `git status` stays clean.
 - Overleaf notes that "pushes from Git to Overleaf can result in the loss or displacement of track
   changes and comments"; settle open comments on a passage before an agent rewrites it.
+- Overleaf rate-limits git requests. olsync makes one request for `status`, one for a `sync` that
+  only pulls, and three for a `sync` that pushes, so syncing at natural pauses stays well within
+  the limit; a tight loop of commands meets "Rate-limit exceeded" for a few minutes.
 - Codex runs commands in a sandbox with network access off by default. Allow it for the session,
   for example `codex -c 'sandbox_workspace_write.network_access=true'`, or set
   `network_access = true` under `[sandbox_workspace_write]` in `~/.codex/config.toml`

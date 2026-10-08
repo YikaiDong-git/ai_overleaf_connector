@@ -112,7 +112,11 @@ def explain_git(args, stderr: str) -> str:
     low = text.lower()
     auth_words = ("authentication failed", "could not read username", "could not read password",
                   "terminal prompts disabled", "invalid username or password")
-    if any(w in low for w in auth_words) or re.search(r"\b40[13]\b", low):
+    if "rate-limit" in low or "rate limit" in low:
+        msg += ("\n\nOverleaf is limiting git requests from this account. Wait a few minutes before "
+                "the next olsync command, and sync at natural pauses (one status and one sync per "
+                "round of edits) instead of in a loop.")
+    elif any(w in low for w in auth_words) or re.search(r"\b40[13]\b", low):
         msg += "\n\n" + AUTH_HELP
     return msg
 
@@ -1271,13 +1275,15 @@ def run_sync(ctx: Ctx, args) -> int:
             result["deleted_on_overleaf"] = [i.path for i in outgoing if i.local is None]
         ctx.update_state(chosen_deletes=[])
 
-    # Fetch again and re-derive the state from scratch.
+    # After a push, fetch again to catch a co-author edit that landed right behind it (Overleaf
+    # rate-limits git requests, so a run that pushed nothing skips this). Then re-derive the state.
     final = result["overleaf_after"]
-    refetch = ctx.repo.run("fetch", "--quiet", "--prune", "origin", network=True, check=False)
-    if refetch.returncode != 0:
-        result["refetch_error"] = refetch.stderr.decode("utf-8", "replace").strip()
-    elif ctx.remote_head() != final:
-        result["overleaf_changed_since"] = ctx.remote_head()
+    if final != remote:
+        refetch = ctx.repo.run("fetch", "--quiet", "--prune", "origin", network=True, check=False)
+        if refetch.returncode != 0:
+            result["refetch_error"] = refetch.stderr.decode("utf-8", "replace").strip()
+        elif ctx.remote_head() != final:
+            result["overleaf_changed_since"] = ctx.remote_head()
     check, _ = make_plan(ctx, final, final)
     unexpected = [i.path for i in check if i.state != "same" and i.path not in result["not_pushed"]]
     result["check"] = {"tracked": len(check), "identical": sum(i.state == "same" for i in check),

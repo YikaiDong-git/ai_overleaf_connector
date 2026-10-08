@@ -92,8 +92,12 @@ surrounding repository.
 6. Run the build command, if configured; a failure stops here.
 7. Commit the local changes on top of Overleaf's head and push. The push is a fast-forward, so a
    co-author edit that lands meanwhile makes it fail (exit 4) and leaves Overleaf untouched.
-8. Fetch again, report whether Overleaf moved on during the run, and confirm every tracked file
-   matches the synced commit.
+8. If something was pushed, fetch again and report whether Overleaf moved on during the run; then
+   confirm every tracked file matches the synced commit.
+
+Network use: `status` makes one request to Overleaf, `sync` one (or three when it pushes: fetch,
+push, re-fetch). Overleaf rate-limits git requests per account; a rapid series of commands gets
+"Rate-limit exceeded" for a few minutes.
 
 ## Authentication
 
@@ -116,6 +120,7 @@ next to the previous successful build's value, so a sync that introduces a probl
 | `Authentication failed`, `could not read Username` | Provide a token: `OVERLEAF_TOKEN`, or git's credential manager with username `git`. |
 | `Repository not found` / HTTP 403 | Check the project URL, and that the project owner's plan includes git integration. |
 | Network errors under Codex | Allow network access for the session (Codex sandboxes block it by default). |
+| `Rate-limit exceeded` | Overleaf is throttling git requests; wait a few minutes, then sync less often. |
 | `Another olsync run is using this folder` | A previous run was interrupted; delete `.olsync/lock`. |
 | `symbolic link` in the stop message | Update the link target by hand, or replace the link with a regular file. |
 | `folder where Overleaf has a file` (or the reverse) | Move the local folder or file aside, then sync again. |

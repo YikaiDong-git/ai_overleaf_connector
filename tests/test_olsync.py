@@ -428,7 +428,7 @@ class SyncTests(Case):
     def test_overleaf_edit_right_after_the_push_is_reported(self):
         self.connect()
         hook = self.remote / "hooks" / "post-receive"
-        hook.write_text(LATER_COMMIT_HOOK, newline="\n")
+        hook.write_bytes(LATER_COMMIT_HOOK.encode())
         hook.chmod(0o755)
         (self.tmp / "later.flag").write_text("x")
         self.set_local("sec/intro.tex", b"edited\n")
@@ -645,6 +645,12 @@ class UnitTests(unittest.TestCase):
             self.assertEqual((tmp / second).read_bytes(), b"two\n")
         finally:
             rmtree(tmp)
+
+    def test_rate_limit_message_says_to_wait(self):
+        stderr = "fatal: remote error: no git access\nRate-limit exceeded. Please wait a while and try again."
+        msg = olsync_module.explain_git(("fetch",), stderr)
+        self.assertIn("Wait a few minutes", msg)
+        self.assertNotIn("generate a token", msg)
 
     def test_only_known_text_formats_are_normalised(self):
         self.assertTrue(olsync_module.is_text("sec/a.tex", b"a\r\nb\r\n"))

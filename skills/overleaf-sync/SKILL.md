@@ -87,6 +87,8 @@ without asking again.
 
 ## Rules
 
+- Overleaf rate-limits its git server. Use one `status` and one `sync` per round of edits, never a
+  polling loop; after "Rate-limit exceeded", wait a few minutes before the next command.
 - Sync only through olsync. `.olsync/` holds the git copy of the project and the last synced
   snapshot; leave it untouched, and leave the Overleaf git URL to olsync.
 - Describe co-author changes by file; summarize their wording only when the user asks.
