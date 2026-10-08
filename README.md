@@ -50,8 +50,11 @@ browser and see the agent's revisions there.
 
 - An Overleaf project with **git integration**. On overleaf.com it is a premium feature,
   [available](https://docs.overleaf.com/integrations-and-add-ons/git-integration-and-github-synchronization/git-integration)
-  when the project owner has a paid subscription or has been granted access to the feature (many
-  institutions provide it). Overleaf Server Pro supports it as well.
+  when the project owner has a paid subscription or has been granted access to the feature. Overleaf Server Pro supports it as well.
+  **Students and staff often have it for free:** many universities license Overleaf Professional
+  for everyone (for example [UCLA](https://www.dts.ucla.edu/news/overleaf-licenses-now-available-ucla-community)
+  and [UC Irvine](https://laptops.eng.uci.edu/engineering-software/overleaf-free-for-students-faculty-and-staff));
+  sign in to Overleaf with your university email, or ask your library or IT office, to check.
 - `git` and Python 3.9 or newer.
 - An Overleaf git token: Overleaf > Account Settings > Git integration > generate token
   ([Overleaf help](https://docs.overleaf.com/integrations-and-add-ons/git-integration-and-github-synchronization/git-integration/git-integration-authentication-tokens)).
@@ -164,7 +167,8 @@ Exit codes, configuration keys and troubleshooting are in
   for example `codex -c 'sandbox_workspace_write.network_access=true'`, or set
   `network_access = true` under `[sandbox_workspace_write]` in `~/.codex/config.toml`
   ([Codex docs](https://developers.openai.com/codex/agent-approvals-security)).
-- On a free Overleaf plan the git integration is unavailable, so olsync cannot connect.
+- On a free Overleaf plan the git integration is unavailable, so olsync cannot connect; a
+  university-provided Overleaf Professional account includes it at no cost to you.
 
 ## Development
 
