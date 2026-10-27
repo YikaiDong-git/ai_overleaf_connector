@@ -19,6 +19,7 @@
 | `--allow-delete` | Also delete on Overleaf the files that were deleted locally. |
 | `--pull-only` | Bring Overleaf changes in and push nothing. |
 | `--no-build` | Skip the configured build check. |
+| `--untracked` | On overleaf.com, push plain git commits instead of tracked changes. |
 | `-m MSG` | Message stored with the pushed commit. |
 | `--dry-run` | Show the plan and change nothing. |
 | `--json` | Machine-readable result. |

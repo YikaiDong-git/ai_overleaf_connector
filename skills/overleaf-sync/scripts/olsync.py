@@ -18,6 +18,7 @@ import errno
 import fnmatch
 import hashlib
 import html
+import importlib.util
 import json
 import os
 import posixpath
@@ -810,6 +811,82 @@ def push(ctx: Ctx, commit: str):
         raise Fail(explain_git(("push",), err), EXIT_GIT)
 
 
+# ---------------------------------------------------------------- tracked pushes
+
+def overleaf_project(ctx: Ctx):
+    """(project id, web host) when the remote is an overleaf.com project, else None."""
+    m = re.fullmatch(r"https://git\.overleaf\.com/([0-9a-f]{10,})/?", ctx.cfg["remote"])
+    return (m.group(1), "www.overleaf.com") if m else None
+
+
+def session_cookie():
+    """The overleaf.com browser session (cookie overleaf_session2): $OVERLEAF_SESSION or ~/.overleaf_session."""
+    if os.environ.get("OVERLEAF_SESSION", "").strip():
+        return os.environ["OVERLEAF_SESSION"].strip()
+    p = Path.home() / ".overleaf_session"
+    if not p.is_file():
+        return None
+    return p.read_text(encoding="utf-8").strip() or None
+
+
+def load_olrt():
+    # olrt.py sits beside this file, in the skill folder and when installed as a module
+    spec = importlib.util.spec_from_file_location("olrt", Path(__file__).with_name("olrt.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def tracked_mode(ctx: Ctx, args) -> bool:
+    """Edits go to overleaf.com as tracked changes unless --untracked; other git servers get plain pushes."""
+    return not getattr(args, "untracked", False) and overleaf_project(ctx) is not None
+
+
+def push_tracked(ctx: Ctx, items) -> list:
+    """Send local edits of existing Overleaf docs as tracked changes and switch Track changes on.
+
+    Returns the items sent; each is read back and must equal the local text. Other items (new, deleted,
+    binary, or files Overleaf stores as uploads) are left for git."""
+    olrt = load_olrt()
+    pid, host = overleaf_project(ctx)
+    sent = []
+    try:
+        proj = olrt.Project(pid, session_cookie(), host)
+        proj.track_changes_on()
+        ids = proj.doc_ids()
+        todo = [it for it in items if it.state == "push" and it.path in ids and is_text(it.path, it.local)]
+        odd = [f"{it.path} ({' '.join(olrt.beyond_bmp(norm(it.path, it.local).decode('utf-8')))})"
+               for it in todo if olrt.beyond_bmp(norm(it.path, it.local).decode("utf-8"))]
+        if odd:
+            raise Fail("Overleaf cannot store characters beyond U+FFFF (emoji and the like; it turns them "
+                       "into \ufffd), so nothing was pushed. Replace them, e.g. with a LaTeX command, in: "
+                       + "; ".join(odd))
+        for it in todo:
+            doc = ids[it.path]
+            git_text = norm(it.path, ctx.blob(it.remote)).decode("utf-8")
+            new = norm(it.path, it.local).decode("utf-8")
+            live = proj.read(doc)[0]
+            # Overleaf's git copy can end with a newline that the doc itself does not hold
+            if live != git_text and live + "\n" == git_text and new.endswith("\n"):
+                new = new[:-1]
+            if live != new:
+                if live != git_text:
+                    raise Fail(f"{it.path} changed on Overleaf after the fetch (someone is editing it), so "
+                               "it was not sent. Run `olsync sync` again."
+                               + (" Already sent as tracked changes: " + ", ".join(i.path for i in sent)
+                                  if sent else ""), EXIT_MOVED)
+                proj.edit(doc, live, new)
+                if proj.read(doc)[0] != new:
+                    raise Fail(f"{it.path}: Overleaf does not hold the sent text after the tracked edit; "
+                               "check it in the editor.")
+            sent.append(it)
+        proj.close()
+    except olrt.RTError as e:
+        raise Fail(f"{e}" + ("\nAlready sent as tracked changes: " + ", ".join(i.path for i in sent)
+                             if sent else "\nNothing was sent as tracked changes."), EXIT_ERROR) from e
+    return sent
+
+
 # ---------------------------------------------------------------- build check
 
 def pdf_pages(pdf: Path):
@@ -1228,7 +1305,8 @@ def run_sync(ctx: Ctx, args) -> int:
     chosen_deletes = set(ctx.load_state().get("chosen_deletes", []))
     result = {"ok": True, "overleaf_before": remote, "overleaf_after": remote,
               "pulled": [], "merged": [], "resolved": [], "moved_to_trash": [], "kept_copies": [],
-              "pushed": [], "deleted_on_overleaf": [], "not_pushed": [], "build": None}
+              "pushed": [], "pushed_tracked": [], "deleted_on_overleaf": [], "not_pushed": [],
+              "build": None}
     for it in items:
         try:
             apply_local_change(ctx, it, result, chosen_deletes)
@@ -1263,6 +1341,15 @@ def run_sync(ctx: Ctx, args) -> int:
                         and (args.allow_delete or i.path in chosen_deletes))]
         result["not_pushed"] = [i.path for i in final_plan
                                 if i.state == "deleted-local" and i not in outgoing]
+        tracked = tracked_mode(ctx, args) and any(i.state == "push" for i in outgoing)
+        if tracked and session_cookie() is None:
+            result["not_pushed"] += [i.path for i in outgoing]
+            raise Fail("Edits are sent to Overleaf as tracked changes by default, and no Overleaf session "
+                       "was found; nothing was pushed (Overleaf changes were pulled).\n"
+                       + load_olrt().COOKIE_HELP)
+        sent = push_tracked(ctx, outgoing) if tracked else []
+        result["pushed_tracked"] = [i.path for i in sent]
+        outgoing = [i for i in outgoing if i not in sent]
         if outgoing:
             names = [i.path for i in outgoing]
             message = args.message or ("Update from local folder: " + ", ".join(names[:5])
@@ -1285,7 +1372,9 @@ def run_sync(ctx: Ctx, args) -> int:
         elif ctx.remote_head() != final:
             result["overleaf_changed_since"] = ctx.remote_head()
     check, _ = make_plan(ctx, final, final)
-    unexpected = [i.path for i in check if i.state != "same" and i.path not in result["not_pushed"]]
+    # tracked edits reach Overleaf's git copy at its next snapshot; push_tracked read each one back
+    unexpected = [i.path for i in check if i.state != "same" and i.path not in result["not_pushed"]
+                  and i.path not in result["pushed_tracked"]]
     result["check"] = {"tracked": len(check), "identical": sum(i.state == "same" for i in check),
                        "unexpected_differences": unexpected}
     if unexpected:
@@ -1308,7 +1397,8 @@ def report_sync(ctx: Ctx, r: dict, as_json: bool):
     print(f"Overleaf  {ctx.cfg['remote']}  {moved}")
     rows = [("pulled", r["pulled"]), ("merged", r["merged"]), ("conflict", r["resolved"]),
             ("to trash", r["moved_to_trash"]), ("saved copy", r["kept_copies"]),
-            ("pushed", r["pushed"]), ("deleted", r["deleted_on_overleaf"]),
+            ("pushed", r["pushed"]), ("tracked", r["pushed_tracked"]),
+            ("deleted", r["deleted_on_overleaf"]),
             ("not pushed", r["not_pushed"])]
     for label, paths in rows:
         for p in paths:
@@ -1322,6 +1412,9 @@ def report_sync(ctx: Ctx, r: dict, as_json: bool):
         c = r["check"]
         print(f"Check     {c['identical']} of {c['tracked']} tracked files identical to Overleaf "
               f"{short(after)}")
+    if r["pushed_tracked"]:
+        print(f"Tracked   {len(r['pushed_tracked'])} file(s) sent as tracked changes (Track changes is on); "
+              "accept or reject them in Overleaf's Review panel")
     if r.get("overleaf_changed_since"):
         print(f"Note      Overleaf has moved on to {short(r['overleaf_changed_since'])} since "
               "(someone edited it); run sync again to bring that in.")
@@ -1387,6 +1480,8 @@ def main(argv=None) -> int:
                    help="also delete on Overleaf the files deleted locally")
     p.add_argument("--pull-only", action="store_true", help="bring Overleaf changes in, push nothing")
     p.add_argument("--no-build", action="store_true", help="skip the configured build check")
+    p.add_argument("--untracked", action="store_true",
+                   help="push edits as plain git commits instead of tracked changes (overleaf.com)")
     p.add_argument("-m", "--message", help="description stored with the pushed commit")
     p.add_argument("--dry-run", action="store_true", help="show the plan, change nothing")
     p.add_argument("--json", action="store_true", help="machine-readable output")

@@ -19,5 +19,5 @@ Homepage = "https://github.com/YikaiDong-git/ai_overleaf_connector"
 olsync = "olsync:main"
 
 [tool.setuptools]
-py-modules = ["olsync"]
+py-modules = ["olsync", "olrt"]
 package-dir = { "" = "skills/overleaf-sync/scripts" }

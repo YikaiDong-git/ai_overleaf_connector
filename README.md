@@ -28,6 +28,10 @@ browser and see the agent's revisions there.
 
 - Three-way merge against the last synced snapshot, file by file and hunk by hunk. Text files are
   merged line by line; figures and other binary files travel byte for byte.
+- Edits arrive as tracked changes: on overleaf.com, each edit to an existing text file goes through
+  Overleaf's editor connection with Track changes on, so co-authors accept or reject every change in
+  the Review panel. Figures, new files and deletions travel through git; `--untracked` sends plain
+  git commits for everything.
 - Concurrency guard: `--expect <commit>` stops a push when Overleaf changed after you looked, and
   every push is a fast-forward on top of Overleaf's latest commit.
 - Sends what the manuscript uses: files reached through `\input`, `\include`, `\includegraphics`,
@@ -39,7 +43,7 @@ browser and see the agent's revisions there.
   the push.
 - Built for agents: `--json` output, documented exit codes, no interactive prompts, and the token
   passed through an environment variable.
-- One Python file, standard library only; CI runs the tests on Linux, macOS and Windows.
+- Two Python files, standard library only; CI runs the tests on Linux, macOS and Windows.
 
 ## Requirements
 
@@ -53,6 +57,11 @@ browser and see the agent's revisions there.
 - `git` and Python 3.9 or newer.
 - An Overleaf git token: Overleaf > Account Settings > Git integration > generate token
   ([Overleaf help](https://docs.overleaf.com/integrations-and-add-ons/git-integration-and-github-synchronization/git-integration/git-integration-authentication-tokens)).
+- For tracked changes (the default on overleaf.com): your Overleaf browser session. In a browser
+  signed in to overleaf.com, copy the value of the cookie `overleaf_session2` (developer tools >
+  Application or Storage > Cookies) into the environment variable `OVERLEAF_SESSION`, or save it
+  alone in `~/.overleaf_session`, readable only by you. Sessions expire after some days; olsync
+  says when to copy a fresh one.
 
 ## Install
 
@@ -124,8 +133,11 @@ Before writing anything, olsync checks that every write stays inside the folder 
 project files would collide on a case-insensitive disk. Pulled files are then written one by one,
 in a way that never overwrites an edit saved during the sync: the current file is moved aside and
 checked, the new one is put in place only if nothing new appeared there, and an editor save at any
-point stops the run with that save kept. Local changes are committed on top of Overleaf's latest commit and
-pushed as a fast-forward. Finally olsync fetches Overleaf again, says so if a co-author edited
+point stops the run with that save kept. On overleaf.com, local edits to existing text files go to the
+editor as word-level tracked changes, and olsync reads each file back to confirm Overleaf holds
+exactly the local text; Overleaf checks a hash of the result as well, so an edit applies whole or
+not at all. Other local changes are committed on top of Overleaf's latest commit and pushed as a
+fast-forward. Finally olsync fetches Overleaf again, says so if a co-author edited
 during the run, and confirms that every tracked file matches.
 
 ## Commands
@@ -137,6 +149,7 @@ during the run, and confirms that every tracked file matches.
 | `olsync sync [--expect SHA] [-m MSG]` | Pull, merge, build check, push, verify. |
 | `olsync sync --prefer local\|overleaf\|newer` | Resolve overlapping edits toward one side. |
 | `olsync sync --pull-only` | Bring Overleaf changes in, push nothing. |
+| `olsync sync --untracked` | Push plain git commits, without tracked changes. |
 | `olsync review` | Write the HTML review page. |
 | `olsync build` | Run the configured build and report on it. |
 
@@ -155,8 +168,16 @@ Exit codes, configuration keys and troubleshooting are in
 - Files reached through symbolic links are read and sent; when Overleaf changes such a file,
   olsync stops and leaves the link target for you to update.
 - `.olsync/` carries its own ignore rule, so your repository's `git status` stays clean.
-- Overleaf notes that "pushes from Git to Overleaf can result in the loss or displacement of track
-  changes and comments"; settle open comments on a passage before an agent rewrites it.
+- Tracked edits leave comments and co-authors' pending tracked changes anchored where they are,
+  with one Overleaf behavior to know: a new deletion right next to a co-author's pending deletion
+  merges into it, under the co-author's name. Plain git pushes (`--untracked`) follow Overleaf's
+  note that "pushes from Git to Overleaf can result in the loss or displacement of track changes
+  and comments"; settle open comments on a passage before an agent rewrites it.
+- Overleaf stores characters up to U+FFFF and turns emoji and other characters beyond that range
+  into `\ufffd`; olsync stops before sending a file that contains them and names the characters.
+- The session cookie opens your whole Overleaf account. olsync sends it only to overleaf.com and
+  reads it from `OVERLEAF_SESSION` or `~/.overleaf_session`; keep it out of chats and of files in
+  the paper folder.
 - Overleaf rate-limits git requests. olsync makes one request for `status`, one for a `sync` that
   only pulls, and three for a `sync` that pushes, so syncing at natural pauses stays well within
   the limit; a tight loop of commands meets "Rate-limit exceeded" for a few minutes.

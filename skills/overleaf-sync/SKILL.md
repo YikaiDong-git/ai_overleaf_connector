@@ -28,6 +28,10 @@ directory (the folder itself, a parent, or one or two levels below).
    `OVERLEAF_TOKEN` in the environment you run in or stores it in git's credential manager
    (username `git`). Ask the user to do this step themselves: the token belongs in their
    environment, outside the chat, command lines and files.
+   For overleaf.com, sync sends edits as tracked changes, which also needs the user's browser
+   session: the value of the cookie `overleaf_session2`, in `OVERLEAF_SESSION` or saved alone in
+   `~/.overleaf_session` (readable only by the user). The user copies it themselves, as with the
+   token.
 3. `olsync init <project-url> --dir <folder>`. Add `--main <file.tex>` when the main file cannot be
    detected, and `--build "<command>"` when the user compiles locally, for example
    `--build "latexmk -pdf -interaction=nonstopmode main.tex"`.
@@ -45,9 +49,12 @@ directory (the folder itself, a parent, or one or two levels below).
 3. **Let the user check large batches:** `olsync review` writes an HTML page with every pending
    change as a before/after diff (`.olsync/review.html`); give the user its path.
 4. **Send:** `olsync status --json`, then
-   `olsync sync --expect <overleaf_head> -m "<one line on what changed>"`.
-5. **Report** in a short table: Overleaf commit before and after, files pulled, merged and pushed,
-   conflicts, build result.
+   `olsync sync --expect <overleaf_head> -m "<one line on what changed>"`. On overleaf.com, edits to
+   existing text files arrive as tracked changes (Track changes is switched on for the owner and
+   every member), so co-authors accept or reject each one; figures, new files and deletions go
+   through git. Use `--untracked` only when the user asks for plain pushes.
+5. **Report** in a short table: Overleaf commit before and after, files pulled, merged, pushed and
+   sent as tracked changes, conflicts, build result.
 
 ## Reading `olsync status --json`
 
@@ -100,6 +107,10 @@ without asking again.
   message; for the last case just run sync again.
 - After a sync, a note that Overleaf "has moved on" means a co-author edited during the run; sync
   again to bring that in.
+- A message that the Overleaf session expired or was refused: ask the user to copy a fresh
+  `overleaf_session2` cookie (step 2 above) and sync again; the Overleaf changes were already pulled.
+- Overleaf stores characters up to U+FFFF only; when sync names emoji or similar characters in a
+  file, replace them (for example with a LaTeX command) and sync again. Nothing was pushed.
 - A network error inside a sandbox (Codex blocks network by default) needs the user to allow
   network access for the session; an authentication error needs a token, as in step 2 above.
 
