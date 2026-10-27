@@ -53,8 +53,23 @@ sys.exit(1 if (Path(__file__).parent / "fail.flag").exists() else 0)
 LATER_COMMIT_HOOK = """#!/bin/sh
 if [ -f ../later.flag ]; then
   rm ../later.flag
+  GIT_INDEX_FILE="$PWD/later.index"; export GIT_INDEX_FILE
+  git read-tree main
+  blob=$(printf '@article{a,title={Later}}\\n' | git hash-object -w --stdin)
+  git update-index --add --cacheinfo 100644,"$blob",refs.bib
+  tree=$(git write-tree)
+  rm -f "$GIT_INDEX_FILE"
   c=$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@x GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@x \\
-      git commit-tree "main^{tree}" -p main -m "later edit")
+      git commit-tree "$tree" -p main -m "later edit")
+  git update-ref refs/heads/main "$c"
+fi
+"""
+# what Overleaf's git bridge does when it snapshots without a change: a new commit with the same tree
+EMPTY_COMMIT_HOOK = """#!/bin/sh
+if [ -f ../later.flag ]; then
+  rm ../later.flag
+  c=$(GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=x@x GIT_COMMITTER_NAME=x GIT_COMMITTER_EMAIL=x@x \\
+      git commit-tree "main^{tree}" -p main -m "snapshot")
   git update-ref refs/heads/main "$c"
 fi
 """
@@ -435,6 +450,18 @@ class SyncTests(Case):
         r = json.loads(self.sync("--json")[0])
         self.assertEqual(r["overleaf_changed_since"], self.remote_head())
         self.assertNotEqual(r["overleaf_after"], self.remote_head())
+
+    def test_empty_overleaf_commit_after_the_push_is_absorbed(self):
+        self.connect()
+        hook = self.remote / "hooks" / "post-receive"
+        hook.write_bytes(EMPTY_COMMIT_HOOK.encode())
+        hook.chmod(0o755)
+        (self.tmp / "later.flag").write_text("x")
+        self.set_local("sec/intro.tex", b"edited\n")
+        r = json.loads(self.sync("--json")[0])
+        self.assertNotIn("overleaf_changed_since", r)
+        self.assertEqual(r["overleaf_after"], self.remote_head())
+        self.assertEqual(r["check"]["unexpected_differences"], [])
 
     def test_folder_linked_elsewhere_is_left_alone(self):
         self.connect()

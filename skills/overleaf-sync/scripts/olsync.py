@@ -842,49 +842,59 @@ def tracked_mode(ctx: Ctx, args) -> bool:
     return not getattr(args, "untracked", False) and overleaf_project(ctx) is not None
 
 
-def push_tracked(ctx: Ctx, items) -> list:
-    """Send local edits of existing Overleaf docs as tracked changes and switch Track changes on.
+class Tracked:
+    """Edits of existing Overleaf docs, sent through the editor connection as tracked changes.
 
-    Returns the items sent; each is read back and must equal the local text. Other items (new, deleted,
-    binary, or files Overleaf stores as uploads) are left for git."""
-    olrt = load_olrt()
-    pid, host = overleaf_project(ctx)
-    sent = []
-    try:
-        proj = olrt.Project(pid, session_cookie(), host)
-        proj.track_changes_on()
-        ids = proj.doc_ids()
-        todo = [it for it in items if it.state == "push" and it.path in ids and is_text(it.path, it.local)]
-        odd = [f"{it.path} ({' '.join(olrt.beyond_bmp(norm(it.path, it.local).decode('utf-8')))})"
-               for it in todo if olrt.beyond_bmp(norm(it.path, it.local).decode("utf-8"))]
+    plan() connects, switches Track changes on and picks the items; nothing is edited yet, so a failure here
+    leaves Overleaf untouched. send() edits each doc and reads it back; it runs after any git push, because a
+    tracked edit moves Overleaf's git head and a later git push would be rejected."""
+
+    def __init__(self, ctx: Ctx, items):
+        self.ctx, self.olrt, self.sent = ctx, load_olrt(), []
+        pid, host = overleaf_project(ctx)
+        try:
+            self.proj = self.olrt.Project(pid, session_cookie(), host)
+            self.proj.track_changes_on()
+            self.ids = self.proj.doc_ids()
+        except self.olrt.RTError as e:
+            raise Fail(f"{e}\nNothing was pushed.", EXIT_ERROR) from e
+        self.todo = [it for it in items if it.state == "push" and it.path in self.ids and is_text(it.path, it.local)]
+        odd = [f"{it.path} ({' '.join(self.olrt.beyond_bmp(norm(it.path, it.local).decode('utf-8')))})"
+               for it in self.todo if self.olrt.beyond_bmp(norm(it.path, it.local).decode("utf-8"))]
         if odd:
             raise Fail("Overleaf cannot store characters beyond U+FFFF (emoji and the like; it turns them "
                        "into \ufffd), so nothing was pushed. Replace them, e.g. with a LaTeX command, in: "
                        + "; ".join(odd))
-        for it in todo:
-            doc = ids[it.path]
-            git_text = norm(it.path, ctx.blob(it.remote)).decode("utf-8")
-            new = norm(it.path, it.local).decode("utf-8")
-            live = proj.read(doc)[0]
-            # Overleaf's git copy can end with a newline that the doc itself does not hold
-            if live != git_text and live + "\n" == git_text and new.endswith("\n"):
-                new = new[:-1]
-            if live != new:
-                if live != git_text:
-                    raise Fail(f"{it.path} changed on Overleaf after the fetch (someone is editing it), so "
-                               "it was not sent. Run `olsync sync` again."
-                               + (" Already sent as tracked changes: " + ", ".join(i.path for i in sent)
-                                  if sent else ""), EXIT_MOVED)
-                proj.edit(doc, live, new)
-                if proj.read(doc)[0] != new:
-                    raise Fail(f"{it.path}: Overleaf does not hold the sent text after the tracked edit; "
-                               "check it in the editor.")
-            sent.append(it)
-        proj.close()
-    except olrt.RTError as e:
-        raise Fail(f"{e}" + ("\nAlready sent as tracked changes: " + ", ".join(i.path for i in sent)
-                             if sent else "\nNothing was sent as tracked changes."), EXIT_ERROR) from e
-    return sent
+
+    def send(self, done_by_git) -> list:
+        """Edit each planned doc; returns the items sent. done_by_git names what git already pushed."""
+        before = ("Already pushed through git: " + ", ".join(done_by_git) + ". ") if done_by_git else ""
+
+        def sent_note():
+            return before + ("Already sent as tracked changes: " + ", ".join(i.path for i in self.sent) + "."
+                             if self.sent else "Nothing was sent as tracked changes.")
+        try:
+            for it in self.todo:
+                doc = self.ids[it.path]
+                git_text = norm(it.path, self.ctx.blob(it.remote)).decode("utf-8")
+                new = norm(it.path, it.local).decode("utf-8")
+                live = self.proj.read(doc)[0]
+                # Overleaf's git copy can end with a newline that the doc itself does not hold
+                if live != git_text and live + "\n" == git_text and new.endswith("\n"):
+                    new = new[:-1]
+                if live != new:
+                    if live != git_text:
+                        raise Fail(f"{it.path} changed on Overleaf after the fetch (someone is editing it), so it "
+                                   f"was not sent. {sent_note()} Run `olsync sync` again.", EXIT_MOVED)
+                    self.proj.edit(doc, live, new)
+                    if self.proj.read(doc)[0] != new:
+                        raise Fail(f"{it.path}: Overleaf does not hold the sent text after the tracked edit; check "
+                                   f"it in the editor. {sent_note()}")
+                self.sent.append(it)
+            self.proj.close()
+        except self.olrt.RTError as e:
+            raise Fail(f"{e}\n{sent_note()}", EXIT_ERROR) from e
+        return self.sent
 
 
 # ---------------------------------------------------------------- build check
@@ -1347,9 +1357,9 @@ def run_sync(ctx: Ctx, args) -> int:
             raise Fail("Edits are sent to Overleaf as tracked changes by default, and no Overleaf session "
                        "was found; nothing was pushed (Overleaf changes were pulled).\n"
                        + load_olrt().COOKIE_HELP)
-        sent = push_tracked(ctx, outgoing) if tracked else []
-        result["pushed_tracked"] = [i.path for i in sent]
-        outgoing = [i for i in outgoing if i not in sent]
+        plan = Tracked(ctx, outgoing) if tracked else None
+        via_editor = plan.todo if plan else []
+        outgoing = [i for i in outgoing if i not in via_editor]
         if outgoing:
             names = [i.path for i in outgoing]
             message = args.message or ("Update from local folder: " + ", ".join(names[:5])
@@ -1360,17 +1370,29 @@ def run_sync(ctx: Ctx, args) -> int:
             result["overleaf_after"] = commit
             result["pushed"] = [i.path for i in outgoing if i.local is not None]
             result["deleted_on_overleaf"] = [i.path for i in outgoing if i.local is None]
+        if via_editor:
+            done = result["pushed"] + result["deleted_on_overleaf"]
+            result["pushed_tracked"] = [i.path for i in plan.send(done)]
+        elif plan:
+            plan.proj.close()
         ctx.update_state(chosen_deletes=[])
 
     # After a push, fetch again to catch a co-author edit that landed right behind it (Overleaf
     # rate-limits git requests, so a run that pushed nothing skips this). Then re-derive the state.
     final = result["overleaf_after"]
-    if final != remote:
+    if final != remote or result["pushed_tracked"]:
         refetch = ctx.repo.run("fetch", "--quiet", "--prune", "origin", network=True, check=False)
         if refetch.returncode != 0:
             result["refetch_error"] = refetch.stderr.decode("utf-8", "replace").strip()
         elif ctx.remote_head() != final:
-            result["overleaf_changed_since"] = ctx.remote_head()
+            head = ctx.remote_head()
+            # our own tracked edits also move the head; only other differences mean a co-author edited
+            moved, _ = make_plan(ctx, final, head)
+            if any(i.state != "same" and i.path not in result["pushed_tracked"] for i in moved):
+                result["overleaf_changed_since"] = head
+            elif all(i.state == "same" for i in moved):
+                ctx.set_base(head)
+                result["overleaf_after"] = final = head
     check, _ = make_plan(ctx, final, final)
     # tracked edits reach Overleaf's git copy at its next snapshot; push_tracked read each one back
     unexpected = [i.path for i in check if i.state != "same" and i.path not in result["not_pushed"]

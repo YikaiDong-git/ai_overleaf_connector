@@ -57,6 +57,16 @@ class WordOps(unittest.TestCase):
         self.assertEqual(olrt.beyond_bmp("Café – ok"), [])
         self.assertEqual(olrt.beyond_bmp("a \U0001F600 b \U0001F600 \U0001D400"), ["\U0001D400", "\U0001F600"])
 
+    def test_latex_command_is_one_token(self):
+        # real shape (seen on overleaf.com): the new line holds a second command, so with "\\" as its own token the
+        # insertion attached to the "\\" of "\\end" and began mid-command
+        src = "\\bibliographystyle{alpha}\n\\bibliography{sample}\n\n\\end{document}\n"
+        dst = ("\\bibliographystyle{alpha}\n\\bibliography{sample}\n\n"
+               "\\includegraphics[width=0.2\\linewidth]{frog2.jpg}\n\\end{document}\n")
+        ops = olrt.word_ops(src, dst)
+        self.assertEqual(olrt.apply_ops(src, ops), dst)
+        self.assertEqual([c for c in ops if "i" in c][0]["i"].lstrip()[:16], "\\includegraphics")
+
     def test_mismatched_delete_fails(self):
         with self.assertRaises(olrt.RTError):
             olrt.apply_ops("abc", [{"p": 0, "d": "x"}])

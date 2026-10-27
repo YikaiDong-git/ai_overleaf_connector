@@ -28,7 +28,8 @@ Tracked edits need your Overleaf browser session (git tokens do not reach the ed
      (readable only by you). It expires after some days; repeat when olsync says so.
 Or push plain (untracked) edits with `olsync sync --untracked`."""
 
-TOKEN = re.compile(r"\s+|\w+|[^\w\s]")
+# a LaTeX command is one token, so an edit never splits "\\end" into "\\" + "end"
+TOKEN = re.compile(r"\\[A-Za-z]+|\s+|\w+|[^\w\s]")
 
 
 class RTError(Exception):
